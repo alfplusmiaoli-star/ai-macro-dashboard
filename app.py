@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
 
 # ==========================================
@@ -10,6 +9,9 @@ st.set_page_config(page_title="AI 財經防護儀表板", layout="wide")
 st.title("四維宏觀與動態資產防護儀表板 (4D Macro & DAA Dashboard)")
 st.markdown("---")
 
+# ==========================================
+# 2. 建立三大模組頁籤 (Tabs)
+# ==========================================
 tab1, tab2, tab3 = st.tabs(["一、四維防護系統 (避險)", "二、長期估值濾網 (長線)", "三、動態提領試算 (退休)"])
 
 end_date = datetime.now()
@@ -21,33 +23,25 @@ start_date_18m = end_date - timedelta(days=540)
 # ==========================================
 with tab1:
     st.subheader("四維緊急煞車與三維動能檢驗")
-    if st.button("啟動檢驗 (Run Analysis)"):
-        with st.spinner("正在連線抓取即時數據..."):
-            try:
-                # 嘗試正常連線 FRED
-                url_hy = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2"
-                hy_spread = pd.read_csv(url_hy, index_col='DATE', parse_dates=True, na_values='.')
-                hy_spread = hy_spread.loc[start_date_1y.strftime('%Y-%m-%d'):end_date.strftime('%Y-%m-%d')].dropna()
-                current_spread = float(hy_spread.iloc[-1].values[0])
-                spread_1m_ago = float(hy_spread.iloc[-21].values[0])
-                spread_change = current_spread - spread_1m_ago
-
-                url_sp500 = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500"
-                sp500_data = pd.read_csv(url_sp500, index_col='DATE', parse_dates=True, na_values='.')
-                sp500_data = sp500_data.apply(pd.to_numeric, errors='coerce').dropna()
-                sp500_data = sp500_data.loc[start_date_1y.strftime('%Y-%m-%d'):end_date.strftime('%Y-%m-%d')]
-                spy_current = float(sp500_data.iloc[-1].values[0])
-                spy_200sma = float(sp500_data.rolling(window=200).mean().iloc[-1].values[0])
-
-            except Exception:
-                # 【備援機制啟動】：若被封鎖，立即切換為教學模擬數據
-                st.toast('⚠️ 外部網路遭阻擋，已自動切換為【教學模擬模式】', icon='🛡️')
-                current_spread = 4.15
-                spread_change = 0.05
-                spy_current = 5120.30
-                spy_200sma = 4850.50
-
-            # 畫面排版與決策輸出 (無論資料來源為何，邏輯皆正常運作)
+    
+    # 建立手動/自動切換開關
+    manual_mode_t1 = st.checkbox("⚙️ 切換為【手動輸入模式】(若自動連線失敗請勾選此項)")
+    
+    if manual_mode_t1:
+        st.warning("⚠️ 已切換為手動模式。請點擊下方連結，前往 FRED 官網查詢最新數值後填入：")
+        st.markdown("- 🔗 [FRED：高收益債信用利差 (BAMLH0A0HYM2)](https://fred.stlouisfed.org/series/BAMLH0A0HYM2)")
+        st.markdown("- 🔗 [FRED：標普500指數 (SP500)](https://fred.stlouisfed.org/series/SP500)")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            current_spread = st.number_input("輸入最新【信用利差】(%)", value=4.15, step=0.1)
+            spread_1m_ago = st.number_input("輸入一個月前【信用利差】(%)", value=4.10, step=0.1)
+            spread_change = current_spread - spread_1m_ago
+        with c2:
+            spy_current = st.number_input("輸入最新【標普500現價】", value=5120.0, step=10.0)
+            spy_200sma = st.number_input("輸入【標普500 200日均線】", value=4850.0, step=10.0)
+            
+        if st.button("執行手動檢驗"):
             col1, col2 = st.columns(2)
             col1.metric("高收益債信用利差 (HY OAS)", f"{current_spread:.2f}%", f"{spread_change:+.2f}% (月變動)", delta_color="inverse")
             col2.metric("標普500 (SP500) 現價 vs 200日均線", f"{spy_current:.2f}", f"均線: {spy_200sma:.2f}")
@@ -58,40 +52,95 @@ with tab1:
                 st.success("✅ **多頭確認：市場流動性與經濟成長健康。**\n\n**決策**：啟動攻擊配置，尋找相對動能強勢板塊。")
             else:
                 st.warning("⚠️ **空頭確認：大盤跌破長期均線，資金動能衰退。**\n\n**決策**：防禦配置，資金轉入 IEI 與 BIL。")
+                
+    else:
+        if st.button("啟動自動檢驗 (Run Analysis)"):
+            with st.spinner("正在連線 FRED 官方資料庫抓取即時數據..."):
+                try:
+                    url_hy = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2"
+                    hy_spread = pd.read_csv(url_hy, index_col='DATE', parse_dates=True, na_values='.')
+                    hy_spread = hy_spread.loc[start_date_1y.strftime('%Y-%m-%d'):end_date.strftime('%Y-%m-%d')].dropna()
+                    current_spread = float(hy_spread.iloc[-1].values[0])
+                    spread_change = current_spread - float(hy_spread.iloc[-21].values[0])
+
+                    url_sp500 = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500"
+                    sp500_data = pd.read_csv(url_sp500, index_col='DATE', parse_dates=True, na_values='.')
+                    sp500_data = sp500_data.apply(pd.to_numeric, errors='coerce').dropna()
+                    sp500_data = sp500_data.loc[start_date_1y.strftime('%Y-%m-%d'):end_date.strftime('%Y-%m-%d')]
+                    spy_current = float(sp500_data.iloc[-1].values[0])
+                    spy_200sma = float(sp500_data.rolling(window=200).mean().iloc[-1].values[0])
+
+                    col1, col2 = st.columns(2)
+                    col1.metric("高收益債信用利差 (HY OAS)", f"{current_spread:.2f}%", f"{spread_change:+.2f}% (月變動)", delta_color="inverse")
+                    col2.metric("標普500 (SP500) 現價 vs 200日均線", f"{spy_current:.2f}", f"均線: {spy_200sma:.2f}")
+
+                    if current_spread > 5.0 or spread_change > 1.0:
+                        st.error("🚨 **警報觸發！實體經濟違約風險過高，啟動強制防禦。**")
+                    elif spy_current > spy_200sma:
+                        st.success("✅ **多頭確認：市場流動性與經濟成長健康。**")
+                    else:
+                        st.warning("⚠️ **空頭確認：大盤跌破長期均線，資金動能衰退。**")
+                except Exception as e:
+                    st.error("❌ **自動抓取失敗！FRED 伺服器連線遭阻擋。**")
+                    st.info("💡 **解決方案：請勾選上方的「⚙️ 切換為【手動輸入模式】」，點擊提供的網址自行取得數據。**")
 
 # ==========================================
 # 頁籤二：長期估值濾網 (Long-term Valuation Filter)
 # ==========================================
 with tab2:
     st.subheader("20法則 (Rule of 20) 大盤水位評估")
-    manual_pe = st.number_input("請查詢並輸入目前的標普500本益比 (P/E Ratio)：", min_value=1.0, value=25.0, step=0.1)
-
-    if st.button("計算估值 (Calculate Valuation)"):
-        with st.spinner("正在計算數據..."):
-            try:
-                url_cpi = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL"
-                cpi_data = pd.read_csv(url_cpi, index_col='DATE', parse_dates=True, na_values='.')
-                cpi_data = cpi_data.loc[start_date_18m.strftime('%Y-%m-%d'):end_date.strftime('%Y-%m-%d')].dropna()
-                cpi_current = float(cpi_data.iloc[-1].values[0])
-                cpi_year_ago = float(cpi_data.iloc[-13].values[0])
-                cpi_yoy = ((cpi_current - cpi_year_ago) / cpi_year_ago) * 100
-            except Exception:
-                # 備援機制
-                st.toast('⚠️ 外部網路遭阻擋，已自動切換為【教學模擬模式】', icon='🛡️')
-                cpi_yoy = 3.15
-
-            pe_ratio = manual_pe
+    
+    manual_mode_t2 = st.checkbox("⚙️ 切換為【全面手動輸入模式】(包含通膨率與本益比)")
+    
+    if manual_mode_t2:
+        st.warning("⚠️ 請點擊下方連結，查詢最新數據後輸入：")
+        st.markdown("- 🔗 [FRED：核心通膨年增率 (CPIAUCSL)](https://fred.stlouisfed.org/series/CPIAUCSL)")
+        st.markdown("- 🔗 [華爾街日報：標普500本益比](https://www.wsj.com/market-data/stocks/peyields)")
+        
+        c1, c2 = st.columns(2)
+        cpi_yoy = c1.number_input("輸入最新【核心通膨年增率】(%)", value=3.1, step=0.1)
+        pe_ratio = c2.number_input("輸入最新【標普500本益比】", value=25.0, step=0.1)
+        
+        if st.button("執行手動估值計算"):
             rule_of_20 = pe_ratio + cpi_yoy
-            
             col1, col2, col3 = st.columns(3)
             col1.metric("標普500 本益比 (P/E)", f"{pe_ratio:.2f}")
             col2.metric("核心通膨年增率 (CPI YoY)", f"{cpi_yoy:.2f}%")
             col3.metric("20法則數值", f"{rule_of_20:.2f}")
 
             if rule_of_20 < 20:
-                st.info("💡 **估值狀態：【低估 (Undervalued)】**\n\n建議：長線便宜區間，可加速定期定額佈局。")
+                st.info("💡 **估值狀態：【低估 (Undervalued)】**")
             else:
-                st.warning("⚠️ **估值狀態：【高估 (Overvalued)】**\n\n建議：大盤不便宜，請勿單筆重壓，保留現金彈性。")
+                st.warning("⚠️ **估值狀態：【高估 (Overvalued)】**")
+    else:
+        manual_pe = st.number_input("請先查詢並輸入目前的【標普500本益比 (P/E Ratio)】：", min_value=1.0, value=25.0, step=0.1)
+        
+        if st.button("計算自動估值 (Calculate Valuation)"):
+            with st.spinner("正在抓取官方通膨數據..."):
+                try:
+                    url_cpi = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL"
+                    cpi_data = pd.read_csv(url_cpi, index_col='DATE', parse_dates=True, na_values='.')
+                    cpi_data = cpi_data.loc[start_date_18m.strftime('%Y-%m-%d'):end_date.strftime('%Y-%m-%d')].dropna()
+                    
+                    cpi_current = float(cpi_data.iloc[-1].values[0])
+                    cpi_year_ago = float(cpi_data.iloc[-13].values[0])
+                    cpi_yoy = ((cpi_current - cpi_year_ago) / cpi_year_ago) * 100
+                    
+                    pe_ratio = manual_pe
+                    rule_of_20 = pe_ratio + cpi_yoy
+                    
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("標普500 本益比 (P/E)", f"{pe_ratio:.2f}")
+                    col2.metric("核心通膨年增率 (CPI YoY)", f"{cpi_yoy:.2f}%")
+                    col3.metric("20法則數值", f"{rule_of_20:.2f}")
+
+                    if rule_of_20 < 20:
+                        st.info("💡 **估值狀態：【低估 (Undervalued)】**\n\n建議：長線便宜區間，可加速定期定額佈局。")
+                    else:
+                        st.warning("⚠️ **估值狀態：【高估 (Overvalued)】**\n\n建議：大盤不便宜，請勿單筆重壓，保留現金彈性。")
+                except Exception as e:
+                    st.error("❌ **自動抓取失敗！FRED 伺服器連線遭阻擋。**")
+                    st.info("💡 **解決方案：請勾選上方的「⚙️ 切換為【全面手動輸入模式】」，點擊提供的網址自行取得數據。**")
 
 # ==========================================
 # 頁籤三：動態安全提領率試算 (Dynamic SWR)

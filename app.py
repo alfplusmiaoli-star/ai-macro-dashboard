@@ -24,7 +24,7 @@ with tab1:
     if st.button("啟動檢驗 (Run Analysis)"):
         with st.spinner("正在抓取即時數據..."):
             try:
-                # 修正點 1：捨棄 pandas_datareader，改用 pandas 直接讀取 FRED 官方 CSV
+                # 抓取信用利差 (直連 FRED 官方 CSV，確保穩定性)
                 url_hy = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2"
                 hy_spread = pd.read_csv(url_hy, index_col='DATE', parse_dates=True, na_values='.')
                 hy_spread = hy_spread.loc[start_date_1y.strftime('%Y-%m-%d'):end_date.strftime('%Y-%m-%d')].dropna()
@@ -33,23 +33,28 @@ with tab1:
                 spread_1m_ago = hy_spread.iloc[-21].values[0]
                 spread_change = current_spread - spread_1m_ago
 
-                # 抓取 SPY 均線
-                spy_data = yf.download('SPY', start=start_date_1y, end=end_date, progress=False)['Adj Close']
+                # 抓取 SPY 均線 (改用 Ticker.history 避免 download 模組崩潰)
+                spy_ticker = yf.Ticker('SPY')
+                spy_data = spy_ticker.history(start=start_date_1y, end=end_date)['Close']
+                
                 if isinstance(spy_data, pd.DataFrame):
                     spy_data = spy_data.squeeze()
+                    
                 spy_200sma = spy_data.rolling(window=200).mean().iloc[-1]
                 spy_current = spy_data.iloc[-1]
 
+                # 畫面排版：建立左右兩欄顯示數據
                 col1, col2 = st.columns(2)
                 col1.metric("高收益債信用利差 (HY OAS)", f"{current_spread:.2f}%", f"{spread_change:+.2f}% (月變動)", delta_color="inverse")
                 col2.metric("標普500 (SPY) 現價 vs 200日均線", f"{spy_current:.2f}", f"均線: {spy_200sma:.2f}")
 
+                # 邏輯判定與警示
                 if current_spread > 5.0 or spread_change > 1.0:
-                    st.error("🚨 **警報觸發！實體經濟違約風險過高，啟動強制防禦。**\n\n**決策**：清空所有股票，100% 轉入 BIL。企業主請凍結資本支出！")
+                    st.error("🚨 **警報觸發！實體經濟違約風險過高，啟動強制防禦。**\n\n**決策**：清空所有股票，100% 轉入 BIL (短期國庫券)。企業主請凍結資本支出！")
                 elif spy_current > spy_200sma:
                     st.success("✅ **多頭確認：市場流動性與經濟成長健康。**\n\n**決策**：啟動攻擊配置，尋找相對動能強勢板塊。")
                 else:
-                    st.warning("⚠️ **空頭確認：大盤跌破長期均線，資金動能衰退。**\n\n**決策**：防禦配置，資金轉入 IEI 與 BIL。")
+                    st.warning("⚠️ **空頭確認：大盤跌破長期均線，資金動能衰退。**\n\n**決策**：防禦配置，資金轉入 IEI (中天期公債) 與 BIL (短期國庫券)。")
             except Exception as e:
                 st.error(f"資料抓取失敗: {e}")
 
@@ -61,7 +66,7 @@ with tab2:
     if st.button("計算估值 (Calculate Valuation)"):
         with st.spinner("正在計算通膨與本益比數據..."):
             try:
-                # 修正點 2：同樣改用直連 CSV 方式抓取 CPI
+                # 抓取 CPI (直連 FRED 官方 CSV)
                 url_cpi = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL"
                 cpi_data = pd.read_csv(url_cpi, index_col='DATE', parse_dates=True, na_values='.')
                 cpi_data = cpi_data.loc[start_date_18m.strftime('%Y-%m-%d'):end_date.strftime('%Y-%m-%d')].dropna()
@@ -70,6 +75,7 @@ with tab2:
                 cpi_year_ago = cpi_data.iloc[-13].values[0]
                 cpi_yoy = ((cpi_current - cpi_year_ago) / cpi_year_ago) * 100
 
+                # 抓取 SPY PE Ratio
                 spy = yf.Ticker("SPY")
                 pe_ratio = spy.info.get('trailingPE', 0)
 

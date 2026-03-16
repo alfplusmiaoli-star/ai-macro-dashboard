@@ -2,18 +2,22 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
-import time
 
+# ==========================================
 # 1. 網頁基本設定 (Page Configuration)
+# ==========================================
 st.set_page_config(page_title="AI 財經防護儀表板", layout="wide")
 st.title("四維宏觀與動態資產防護儀表板 (4D Macro & DAA Dashboard)")
 st.markdown("---")
 
+# ==========================================
 # 2. 建立三大模組頁籤 (Tabs)
+# ==========================================
 tab1, tab2, tab3 = st.tabs(["一、四維防護系統 (避險)", "二、長期估值濾網 (長線)", "三、動態提領試算 (退休)"])
 
 end_date = datetime.now()
-start_date_1y = end_date - timedelta(days=365)
+# 抓取過去 400 天的資料，確保扣除假日後仍有足夠的 200 個交易日可計算均線
+start_date_1y = end_date - timedelta(days=400)
 start_date_18m = end_date - timedelta(days=540)
 
 # ==========================================
@@ -22,31 +26,30 @@ start_date_18m = end_date - timedelta(days=540)
 with tab1:
     st.subheader("四維緊急煞車與三維動能檢驗")
     if st.button("啟動檢驗 (Run Analysis)"):
-        with st.spinner("正在抓取即時數據..."):
+        with st.spinner("正在從聯準會 (FRED) 官方資料庫抓取即時數據..."):
             try:
-                # 抓取信用利差 (直連 FRED 官方 CSV，確保穩定性)
+                # 1. 抓取信用利差 (HY OAS) - 捨棄第三方套件，直連官方 CSV
                 url_hy = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2"
                 hy_spread = pd.read_csv(url_hy, index_col='DATE', parse_dates=True, na_values='.')
                 hy_spread = hy_spread.loc[start_date_1y.strftime('%Y-%m-%d'):end_date.strftime('%Y-%m-%d')].dropna()
                 
-                current_spread = hy_spread.iloc[-1].values[0]
-                spread_1m_ago = hy_spread.iloc[-21].values[0]
+                current_spread = float(hy_spread.iloc[-1].values[0])
+                spread_1m_ago = float(hy_spread.iloc[-21].values[0])
                 spread_change = current_spread - spread_1m_ago
 
-                # 抓取 SPY 均線 (改用 Ticker.history 避免 download 模組崩潰)
-                spy_ticker = yf.Ticker('SPY')
-                spy_data = spy_ticker.history(start=start_date_1y, end=end_date)['Close']
+                # 2. 抓取標普 500 (SP500) - 捨棄 Yahoo，改用 FRED 官方大盤指數避開阻擋
+                url_sp500 = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500"
+                sp500_data = pd.read_csv(url_sp500, index_col='DATE', parse_dates=True, na_values='.')
+                sp500_data = sp500_data.apply(pd.to_numeric, errors='coerce').dropna()
+                sp500_data = sp500_data.loc[start_date_1y.strftime('%Y-%m-%d'):end_date.strftime('%Y-%m-%d')]
                 
-                if isinstance(spy_data, pd.DataFrame):
-                    spy_data = spy_data.squeeze()
-                    
-                spy_200sma = spy_data.rolling(window=200).mean().iloc[-1]
-                spy_current = spy_data.iloc[-1]
+                spy_current = float(sp500_data.iloc[-1].values[0])
+                spy_200sma = float(sp500_data.rolling(window=200).mean().iloc[-1].values[0])
 
-                # 畫面排版：建立左右兩欄顯示數據
+                # 畫面排版
                 col1, col2 = st.columns(2)
                 col1.metric("高收益債信用利差 (HY OAS)", f"{current_spread:.2f}%", f"{spread_change:+.2f}% (月變動)", delta_color="inverse")
-                col2.metric("標普500 (SPY) 現價 vs 200日均線", f"{spy_current:.2f}", f"均線: {spy_200sma:.2f}")
+                col2.metric("標普500 (SP500) 現價 vs 200日均線", f"{spy_current:.2f}", f"均線: {spy_200sma:.2f}")
 
                 # 邏輯判定與警示
                 if current_spread > 5.0 or spread_change > 1.0:
@@ -56,13 +59,17 @@ with tab1:
                 else:
                     st.warning("⚠️ **空頭確認：大盤跌破長期均線，資金動能衰退。**\n\n**決策**：防禦配置，資金轉入 IEI (中天期公債) 與 BIL (短期國庫券)。")
             except Exception as e:
-                st.error(f"資料抓取失敗: {e}")
+                st.error(f"資料抓取失敗 (請檢查網路連線或 FRED 伺服器狀態): {e}")
 
 # ==========================================
 # 頁籤二：長期估值濾網 (Long-term Valuation Filter)
 # ==========================================
 with tab2:
     st.subheader("20法則 (Rule of 20) 大盤水位評估")
+    
+    # 建立手動輸入備案 (Fail-safe mechanism)
+    manual_pe = st.number_input("若系統無法自動取得本益比，請手動輸入目前的標普500本益比：", min_value=0.0, value=25.0, step=0.1)
+
     if st.button("計算估值 (Calculate Valuation)"):
         with st.spinner("正在計算通膨與本益比數據..."):
             try:
@@ -71,27 +78,32 @@ with tab2:
                 cpi_data = pd.read_csv(url_cpi, index_col='DATE', parse_dates=True, na_values='.')
                 cpi_data = cpi_data.loc[start_date_18m.strftime('%Y-%m-%d'):end_date.strftime('%Y-%m-%d')].dropna()
                 
-                cpi_current = cpi_data.iloc[-1].values[0]
-                cpi_year_ago = cpi_data.iloc[-13].values[0]
+                cpi_current = float(cpi_data.iloc[-1].values[0])
+                cpi_year_ago = float(cpi_data.iloc[-13].values[0])
                 cpi_yoy = ((cpi_current - cpi_year_ago) / cpi_year_ago) * 100
 
-                # 抓取 SPY PE Ratio
-                spy = yf.Ticker("SPY")
-                pe_ratio = spy.info.get('trailingPE', 0)
+                # 嘗試抓取 SPY PE Ratio，若失敗則使用手動輸入值
+                pe_ratio = 0
+                try:
+                    spy = yf.Ticker("SPY")
+                    pe_ratio = spy.info.get('trailingPE', 0)
+                except Exception:
+                    pass
+                
+                if pe_ratio == 0 or pd.isna(pe_ratio):
+                    pe_ratio = manual_pe
+                    st.toast('自動取得本益比受限，已切換為手動輸入模式！', icon='⚠️')
 
-                if pe_ratio > 0:
-                    rule_of_20 = pe_ratio + cpi_yoy
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("標普500 本益比 (P/E)", f"{pe_ratio:.2f}")
-                    col2.metric("核心通膨年增率 (CPI YoY)", f"{cpi_yoy:.2f}%")
-                    col3.metric("20法則數值", f"{rule_of_20:.2f}")
+                rule_of_20 = pe_ratio + cpi_yoy
+                col1, col2, col3 = st.columns(3)
+                col1.metric("標普500 本益比 (P/E)", f"{pe_ratio:.2f}")
+                col2.metric("核心通膨年增率 (CPI YoY)", f"{cpi_yoy:.2f}%")
+                col3.metric("20法則數值", f"{rule_of_20:.2f}")
 
-                    if rule_of_20 < 20:
-                        st.info("💡 **估值狀態：【低估 (Undervalued)】**\n\n建議：長線便宜區間，可加速定期定額佈局。")
-                    else:
-                        st.warning("⚠️ **估值狀態：【高估 (Overvalued)】**\n\n建議：大盤不便宜，請勿單筆重壓，保留現金彈性。")
+                if rule_of_20 < 20:
+                    st.info("💡 **估值狀態：【低估 (Undervalued)】**\n\n建議：長線便宜區間，可加速定期定額佈局。")
                 else:
-                    st.error("目前無法取得本益比數據。")
+                    st.warning("⚠️ **估值狀態：【高估 (Overvalued)】**\n\n建議：大盤不便宜，請勿單筆重壓，保留現金彈性。")
             except Exception as e:
                 st.error(f"資料抓取失敗: {e}")
 
